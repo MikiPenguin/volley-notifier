@@ -1,7 +1,9 @@
 import os
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
 
+# URL del Webhook di Discord salvato nei Secrets di GitHub
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 HEADERS = {
@@ -18,15 +20,19 @@ def get_partite_maschile():
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Cerca elementi testuali o righe che contengono le informazioni del match
-            for element in soup.find_all(['tr', 'div'], class_=['match-row', 'row', 'card', 'cell'] or True):
-                text = element.get_text(" ", strip=True)
-                # Filtra per elementi che contengono una data o un orario tipico delle partite
-                if ("Ore" in text or "Sabato" in text or "Domenica" in text or "Mercoledí" in text) and len(text) > 30:
+            # Cerca le righe delle partite o le schede dei match nel calendario
+            # La lega volley maschile struttura i match in blocchi/tabelle
+            rows = soup.find_all("tr") or soup.find_all("div", class_="match-card")
+            
+            for row in rows:
+                text = row.get_text(" ", strip=True)
+                # Filtra per partite non ancora giocate (es. con orario o data attiva)
+                if "Ore" in text or "Domenica" in text or "Sabato" in text:
+                    # Rimuove spazi eccessivi
                     clean_text = " ".join(text.split())
-                    if clean_text not in partite:
+                    if len(clean_text) > 20:
                         partite.append(clean_text)
-                        if len(partite) >= 3:
+                        if len(partite) >= 3: # Prendiamo le prime 3 imminenti
                             break
     except Exception as e:
         print(f"Errore nello scraping Maschile: {e}")
@@ -43,14 +49,16 @@ def get_partite_femminile():
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Cerca blocchi di match nel calendario femminile
-            for element in soup.find_all(['div', 'tr', 'li'], class_=True):
-                text = element.get_text(" ", strip=True)
-                if ("LVF" in text or "Giornata" in text) and ("/" in text or "Ore" in text):
+            # Cerca i blocchi delle partite nel calendario femminile
+            matches = soup.find_all("div", class_="match") or soup.find_all("tr")
+            
+            for match in matches:
+                text = match.get_text(" ", strip=True)
+                if "LVF A1" in text or "LVF A2" in text or "Giornata" in text:
                     clean_text = " ".join(text.split())
-                    if len(clean_text) > 25 and clean_text not in partite:
+                    if len(clean_text) > 20:
                         partite.append(clean_text)
-                        if len(partite) >= 3:
+                        if len(partite) >= 3: # Prendiamo le prime 3 imminenti
                             break
     except Exception as e:
         print(f"Errore nello scraping Femminile: {e}")
@@ -65,14 +73,16 @@ def send_discord_notification(partite_m, partite_f):
 
     fields = []
     
-    txt_m = "\n\n".join([f"• {p}" for p in partite_m]) if partite_m else "Nessun match imminente trovato al momento."
+    # Sezione Maschile
+    txt_m = "\n\n".join([f"• {p}" for p in partite_m]) if partite_m else "Nessun match imminente trovato."
     fields.append({
         "name": "🏐 Serie A Maschile",
-        "value": txt_m[:1024],
+        "value": txt_m[:1024], # Limite caratteri Discord
         "inline": False
     })
     
-    txt_f = "\n\n".join([f"• {p}" for p in partite_f]) if partite_f else "Nessun match imminente trovato al momento."
+    # Sezione Femminile
+    txt_f = "\n\n".join([f"• {p}" for p in partite_f]) if partite_f else "Nessun match imminente trovato."
     fields.append({
         "name": "🏐 Serie A Femminile",
         "value": txt_f[:1024],
@@ -81,7 +91,7 @@ def send_discord_notification(partite_m, partite_f):
 
     embed = {
         "title": "📅 Prossime Partite di Pallavolo Serie A",
-        "color": 3447003,
+        "color": 3447003, # Colore Blu
         "fields": fields,
         "footer": {"text": "FIPAV / Lega Volley Notifier"}
     }
